@@ -12,7 +12,7 @@ terraform {
     bucket         = "nics-unict-cloud-systems-tofu-state"   # globally unique name
     key            = "lab/ec2/terraform.tfstate"
     region         = "eu-south-1"
-    dynamodb_table = "unict-cloud-systems-tofu-locks"  # must exist before running tofu init
+    dynamodb_table = "tofu-state-lock"  # must exist before running tofu init
     encrypt        = true
   }
 }

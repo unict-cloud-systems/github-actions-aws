@@ -1,12 +1,12 @@
 variable "aws_region" {
   type    = string
-  default = "us-east-1"
+  default = "eu-south-1"
 }
 
 variable "instance_type" {
   description = "EC2 instance type — t2.micro is Free Tier eligible"
   type        = string
-  default     = "t2.micro"
+  default     = "t3.micro"
 }
 
 variable "public_key" {

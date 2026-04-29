@@ -22,6 +22,6 @@ resource "aws_instance" "lab" {
   vpc_security_group_ids = [aws_security_group.ssh.id]
 
   tags = {
-    Name = "lab-gitops-aws"
+    Name = "lab-gitops-aws-live"
   }
 }

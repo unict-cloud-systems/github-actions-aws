@@ -1,6 +1,6 @@
 resource "aws_security_group" "k8s" {
   name        = "k8s-cluster-sg"
-  description = "Kubernetes cluster — SSH, K8s API, intra-cluster, NodePort"
+  description = "Kubernetes cluster - SSH, K8s API, intra-cluster, NodePort"
 
   # SSH — needed by Ansible running on the GitHub Actions runner
   ingress {

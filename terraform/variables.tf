@@ -4,9 +4,9 @@ variable "aws_region" {
 }
 
 variable "control_plane_instance_type" {
-  description = "EC2 instance type for K8s control plane — kubeadm needs >= 2 vCPU, 2 GB RAM (t3.medium = 2 vCPU 4 GB)"
+  description = "EC2 instance type for K8s control plane - kubeadm needs >= 2 vCPU, 2 GB RAM (t3.small = 2 vCPU 2 GB, free-tier eligible)"
   type        = string
-  default     = "t3.medium"
+  default     = "t3.small"
 }
 
 variable "worker_count" {

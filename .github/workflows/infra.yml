@@ -168,10 +168,12 @@ jobs:
           sed -i "s|server: https://[0-9.]*:6443|server: https://${CONTROL_PLANE_IP}:6443|" kubeconfig
 
           # Store as SecureString in SSM — retrieved by deploy.yml on every push to k8s/
+          # Advanced tier required: kubeconfig typically exceeds the 4096-char standard limit
           aws ssm put-parameter \
             --name "/k8s/kubeconfig" \
             --value "$(cat kubeconfig)" \
             --type SecureString \
+            --tier Advanced \
             --overwrite
           echo "✅ KUBECONFIG stored at SSM /k8s/kubeconfig"
 

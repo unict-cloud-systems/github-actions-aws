@@ -19,12 +19,18 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: us-east-1
+          aws-region: eu-south-1
 
       - uses: opentofu/setup-opentofu@v1
 
       - name: tofu init
         run: tofu -chdir=terraform init
+
+      - name: Delete SSM parameter (not managed by Terraform)
+        run: |
+          aws ssm delete-parameter --name "/k8s/kubeconfig" \
+            && echo "✅ SSM /k8s/kubeconfig deleted" \
+            || echo "⚠️  SSM parameter not found — skipping"
 
       - name: tofu destroy
         run: tofu -chdir=terraform destroy -auto-approve

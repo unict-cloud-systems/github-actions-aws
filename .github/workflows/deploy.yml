@@ -40,6 +40,26 @@ jobs:
       - name: Apply manifests
         run: KUBECONFIG=./kubeconfig kubectl apply -f k8s/
 
+      - name: Install ingress-nginx controller (stage 2 — only when Ingress resources are present)
+        run: |
+          # Skip if no Ingress resource has been added to k8s/ yet (stage 1)
+          if ! grep -rl 'kind: Ingress' k8s/ | grep -q .; then
+            echo "No Ingress resources found — skipping ingress-nginx install"
+            exit 0
+          fi
+
+          echo "Ingress resources detected — installing ingress-nginx controller"
+          KUBECONFIG=./kubeconfig kubectl apply -f \
+            https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.12.1/deploy/static/provider/baremetal/deploy.yaml
+
+          # Pin HTTP NodePort to 30080 — must match the NLB target group port in nlb.tf
+          KUBECONFIG=./kubeconfig kubectl patch svc ingress-nginx-controller \
+            -n ingress-nginx --type=json \
+            -p='[{"op":"replace","path":"/spec/ports/0/nodePort","value":30080}]'
+
+          KUBECONFIG=./kubeconfig kubectl rollout status deployment/ingress-nginx-controller \
+            -n ingress-nginx --timeout=120s
+
       - name: Wait for rollout
         run: |
           KUBECONFIG=./kubeconfig kubectl rollout status \

@@ -1,0 +1,49 @@
+name: Deploy to Kubernetes
+
+on:
+  push:
+    branches: [main]
+    paths: ['k8s/**']
+  workflow_dispatch:
+
+permissions:
+  id-token: write   # required for OIDC
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: eu-south-1
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Fetch KUBECONFIG from SSM Parameter Store
+        run: |
+          aws ssm get-parameter \
+            --name "/k8s/kubeconfig" \
+            --with-decryption \
+            --query Parameter.Value \
+            --output text > kubeconfig
+          chmod 600 kubeconfig
+
+      - name: Verify cluster is reachable
+        run: KUBECONFIG=./kubeconfig kubectl get nodes
+
+      - name: Apply manifests
+        run: KUBECONFIG=./kubeconfig kubectl apply -f k8s/
+
+      - name: Wait for rollout
+        run: |
+          KUBECONFIG=./kubeconfig kubectl rollout status \
+            deployment/nginx --timeout=120s
+
+      - name: Show running pods
+        run: KUBECONFIG=./kubeconfig kubectl get pods -o wide

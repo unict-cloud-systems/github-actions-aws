@@ -10,7 +10,7 @@ terraform {
   # Create it with the commands in the README, then replace CHANGE_ME below.
   backend "s3" {
     bucket         = "nics-unict-cloud-systems-tofu-state"   # globally unique name
-    key            = "lab/ec2/terraform.tfstate"
+    key            = "lab/k8s/terraform.tfstate"
     region         = "eu-south-1"
     dynamodb_table = "tofu-state-lock"  # must exist before running tofu init
     encrypt        = true

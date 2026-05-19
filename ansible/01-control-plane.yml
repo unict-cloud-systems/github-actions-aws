@@ -1,0 +1,84 @@
+# 01-control-plane.yml — initialise the Kubernetes control plane with kubeadm
+#
+# AWS adaptation vs Multipass:
+#   - EC2 instances have a private IP on their interface and a public IP via NAT.
+#   - kubeadm auto-detects the private IP for --apiserver-advertise-address.
+#   - --apiserver-cert-extra-sans adds the public IP as a SAN so that KUBECONFIG
+#     patched to the public IP is accepted by the API server TLS certificate.
+#   - Workers join using the private IP (intra-cluster via the self-referential SG).
+#   - The GitHub Actions runner uses the public IP for kubectl (KUBECONFIG patched
+#     in the 'configure' job of infra.yml before storing in SSM).
+---
+- name: Initialise Kubernetes control plane
+  hosts: control_plane
+  become: true
+  vars:
+    pod_network_cidr: "10.244.0.0/16"   # required by Flannel CNI
+    flannel_manifest: "https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml"
+
+  tasks:
+
+    - name: Check if control plane is already initialised
+      stat:
+        path: /etc/kubernetes/admin.conf
+      register: kubeadm_init_done
+
+    - name: Run kubeadm init
+      command: >
+        kubeadm init
+        --pod-network-cidr={{ pod_network_cidr }}
+        --apiserver-cert-extra-sans={{ ansible_host }}
+      when: not kubeadm_init_done.stat.exists
+      register: kubeadm_init_output
+
+    # ── kubeconfig for ubuntu user ────────────────────────────────────────────
+    - name: Create .kube directory for ubuntu user
+      file:
+        path: /home/ubuntu/.kube
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+        mode: '0755'
+
+    - name: Copy admin.conf to ubuntu's kubeconfig
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/ubuntu/.kube/config
+        remote_src: true
+        owner: ubuntu
+        group: ubuntu
+        mode: '0600'
+
+    # ── CNI: Flannel ──────────────────────────────────────────────────────────
+    - name: Install Flannel CNI
+      become: false
+      command: kubectl apply -f {{ flannel_manifest }}
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+
+    # ── Join command ──────────────────────────────────────────────────────────
+    - name: Generate worker join command
+      command: kubeadm token create --print-join-command
+      register: join_command_raw
+      changed_when: false
+
+    - name: Save join command on the Ansible controller for the worker play
+      copy:
+        content: "{{ join_command_raw.stdout }}\n"
+        dest: /tmp/k8s_join_command.sh
+        mode: '0600'
+      delegate_to: localhost
+      become: false
+
+    # ── Sanity check ──────────────────────────────────────────────────────────
+    - name: Show cluster nodes (control plane should be Ready)
+      become: false
+      command: kubectl get nodes
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+      register: nodes_output
+      changed_when: false
+
+    - name: Print node status
+      debug:
+        msg: "{{ nodes_output.stdout_lines }}"

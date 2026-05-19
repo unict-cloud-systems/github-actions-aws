@@ -1,11 +1,11 @@
-name: Provision AWS EC2
+name: Provision K8s Cluster on AWS
 
 on:
   push:
     branches: [main]
-    paths: ['terraform/**']
+    paths: ['terraform/**', 'ansible/**']
   pull_request:
-    paths: ['terraform/**']
+    paths: ['terraform/**', 'ansible/**']
 
 permissions:
   id-token: write        # required for OIDC
@@ -13,6 +13,7 @@ permissions:
   pull-requests: write   # required to post plan as PR comment
 
 jobs:
+  # ── plan: run on every PR, post output as a comment ──────────────────────────
   plan:
     runs-on: ubuntu-latest
     steps:
@@ -49,11 +50,12 @@ jobs:
               body: `### OpenTofu Plan\n\`\`\`\n${truncated}\n\`\`\``
             });
 
-  apply:
+  # ── provision: apply infrastructure on merge to main ─────────────────────────
+  provision:
     runs-on: ubuntu-latest
     needs: plan
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    environment: production   # optional: adds a manual approval gate
+    environment: production   # manual approval gate before touching real infra
     steps:
       - uses: actions/checkout@v4
 
@@ -73,12 +75,105 @@ jobs:
         env:
           TF_VAR_public_key: ${{ secrets.SSH_PUBLIC_KEY }}
 
-      - name: Export EC2 IP
-        run: tofu -chdir=terraform output -raw instance_public_ip > ec2_ip.txt
+      - name: Generate Ansible inventory from Terraform outputs
+        run: |
+          CONTROL_PLANE_IP=$(tofu -chdir=terraform output -raw control_plane_public_ip)
+          WORKER_IPS=$(tofu -chdir=terraform output -json worker_public_ips | jq -r '.[]')
 
-      - name: Upload EC2 IP artifact
+          {
+            echo "[control_plane]"
+            echo "control-plane-1 ansible_host=${CONTROL_PLANE_IP} ansible_user=ubuntu"
+            echo ""
+            echo "[workers]"
+            i=1
+            while IFS= read -r ip; do
+              echo "worker-${i} ansible_host=${ip} ansible_user=ubuntu"
+              i=$((i+1))
+            done <<< "$WORKER_IPS"
+            echo ""
+            echo "[k8s:children]"
+            echo "control_plane"
+            echo "workers"
+            echo ""
+            echo "[all:vars]"
+            echo "ansible_ssh_private_key_file=./id_ed25519"
+            echo "ansible_ssh_common_args=-o StrictHostKeyChecking=no"
+          } > hosts.ini
+
+          echo "=== Generated inventory ==="
+          cat hosts.ini
+
+      - name: Upload inventory artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ec2-ip
-          path: ec2_ip.txt
+          name: k8s-inventory
+          path: hosts.ini
           retention-days: 1
+
+  # ── configure: bootstrap Kubernetes with Ansible, store KUBECONFIG in SSM ────
+  configure:
+    runs-on: ubuntu-latest
+    needs: provision
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: eu-south-1
+
+      - name: Download Ansible inventory
+        uses: actions/download-artifact@v4
+        with:
+          name: k8s-inventory
+
+      - name: Write SSH private key
+        run: |
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > id_ed25519
+          chmod 600 id_ed25519
+
+      - name: Install Ansible and required collections
+        run: |
+          pip install ansible
+          ansible-galaxy collection install community.general ansible.posix
+
+      - name: Wait for SSH to be ready on all nodes
+        run: |
+          while IFS= read -r line; do
+            ip=$(echo "$line" | grep -oP 'ansible_host=\K[0-9.]+' || true)
+            [ -z "$ip" ] && continue
+            echo "Waiting for SSH on ${ip}..."
+            timeout 180 bash -c \
+              "until ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i id_ed25519 ubuntu@${ip} true 2>/dev/null; do sleep 10; done"
+          done < hosts.ini
+
+      - name: Install K8s prerequisites on all nodes
+        run: ansible-playbook -i hosts.ini ansible/00-prerequisites.yml
+
+      - name: Bootstrap control plane
+        run: ansible-playbook -i hosts.ini ansible/01-control-plane.yml
+
+      - name: Join worker nodes
+        run: ansible-playbook -i hosts.ini ansible/02-workers.yml
+
+      - name: Fetch KUBECONFIG and store in SSM Parameter Store
+        run: |
+          CONTROL_PLANE_IP=$(grep ansible_host hosts.ini | head -1 | grep -oP 'ansible_host=\K[0-9.]+')
+          scp -i id_ed25519 -o StrictHostKeyChecking=no \
+            ubuntu@${CONTROL_PLANE_IP}:/home/ubuntu/.kube/config kubeconfig
+
+          # Patch server URL: kubeadm uses the private IP internally,
+          # but the GitHub runner needs the public IP to reach the API server.
+          sed -i "s|server: https://[0-9.]*:6443|server: https://${CONTROL_PLANE_IP}:6443|" kubeconfig
+
+          # Store as SecureString in SSM — retrieved by deploy.yml on every push to k8s/
+          aws ssm put-parameter \
+            --name "/k8s/kubeconfig" \
+            --value "$(cat kubeconfig)" \
+            --type SecureString \
+            --overwrite
+          echo "✅ KUBECONFIG stored at SSM /k8s/kubeconfig"
+
+          # Quick sanity-check — the cluster should be Ready
+          KUBECONFIG=./kubeconfig kubectl get nodes

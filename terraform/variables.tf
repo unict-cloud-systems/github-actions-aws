@@ -3,8 +3,20 @@ variable "aws_region" {
   default = "eu-south-1"
 }
 
-variable "instance_type" {
-  description = "EC2 instance type — t2.micro is Free Tier eligible"
+variable "control_plane_instance_type" {
+  description = "EC2 instance type for K8s control plane — kubeadm needs >= 2 vCPU, 2 GB RAM (t3.medium = 2 vCPU 4 GB)"
+  type        = string
+  default     = "t3.medium"
+}
+
+variable "worker_count" {
+  description = "Number of K8s worker nodes"
+  type        = number
+  default     = 2
+}
+
+variable "worker_instance_type" {
+  description = "EC2 instance type for K8s workers — kubeadm needs >= 2 vCPU, 2 GB RAM (t3.small = 2 vCPU 2 GB)"
   type        = string
   default     = "t3.small"
 }

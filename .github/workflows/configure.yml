@@ -1,45 +1,14 @@
-name: Configure EC2
+# ⚠️  This workflow has been superseded.
+# Configuration (Ansible K8s bootstrap) is now the 'configure' job inside infra.yml.
+# Kept here only for historical reference — it will never trigger automatically.
+
+name: Configure K8s Nodes (merged into infra.yml)
 
 on:
-  workflow_run:
-    workflows: ["Provision AWS EC2"]
-    types: [completed]
-    branches: [main]
+  workflow_dispatch:   # manual only — never triggered automatically
 
 jobs:
-  configure:
+  info:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
-
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Download EC2 IP artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: ec2-ip
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
-
-      - name: Install Ansible
-        run: pip install ansible
-
-      - name: Write SSH private key
-        run: |
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > id_ed25519
-          chmod 600 id_ed25519
-
-      - name: Wait for SSH to be ready
-        run: |
-          EC2_IP=$(cat ec2_ip.txt)
-          timeout 120 bash -c "until ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i id_ed25519 ubuntu@${EC2_IP} true 2>/dev/null; do sleep 5; done"
-
-      - name: Install Docker via Ansible
-        run: |
-          EC2_IP=$(cat ec2_ip.txt)
-          ansible-playbook \
-            -i "${EC2_IP}," \
-            --private-key id_ed25519 \
-            --ssh-extra-args "-o StrictHostKeyChecking=no" \
-            -u ubuntu \
-            ansible/install_docker.yml
+      - run: echo "K8s cluster configuration is handled by the 'configure' job in infra.yml"

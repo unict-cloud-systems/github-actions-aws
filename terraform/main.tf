@@ -24,7 +24,7 @@ resource "aws_instance" "control_plane" {
 
   tags = {
     Name = "k8s-control-plane"
-    Role = "control-plane"
+    Role = "control-plane-unict"
   }
 }
 

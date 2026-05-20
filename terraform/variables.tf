@@ -12,7 +12,7 @@ variable "control_plane_instance_type" {
 variable "worker_count" {
   description = "Number of K8s worker nodes"
   type        = number
-  default     = 2
+  default     = 4
 }
 
 variable "worker_instance_type" {

@@ -1,12 +1,13 @@
+# Stage 2: copy this to k8s/nginx-service.yaml (overwrites the NodePort version)
+# Switches to ClusterIP — external access now goes through ingress-nginx, not NodePort.
 apiVersion: v1
 kind: Service
 metadata:
   name: nginx
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: nginx
   ports:
     - port: 80
       targetPort: 80
-      nodePort: 30080
